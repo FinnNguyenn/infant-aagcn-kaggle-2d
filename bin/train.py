@@ -39,7 +39,16 @@ if __name__ == '__main__':
     arg_parser.add_argument('--masking', action='store_true')
     arg_parser.add_argument('--num-workers', default=8, type=int)
     arg_parser.add_argument('--devices', default=1, type=int)
+    arg_parser.add_argument(
+        '--fold',
+        default=None,
+        type=int,
+        help='Train only one fold (1-indexed). By default, train every fold.'
+    )
     args = arg_parser.parse_args()
+
+    if args.fold is not None and not 1 <= args.fold <= args.k_folds:
+        arg_parser.error('--fold must be between 1 and --k-folds')
 
     logger = get_logger('infant-aagcn', filename=args.log_file)
 
@@ -64,6 +73,9 @@ if __name__ == '__main__':
     kfold = KFold(n_splits=args.k_folds, shuffle=False)
 
     for fold_n, (train_indices, val_indices) in enumerate(kfold.split(age_data), start=1):
+        if args.fold is not None and fold_n != args.fold:
+            continue
+
         output_dir = os.path.join(args.output_dir, f'fold_{fold_n}')
         os.makedirs(output_dir, exist_ok=True)
 

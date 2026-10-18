@@ -1,0 +1,9 @@
+# Keep Kaggle's preinstalled CUDA-enabled PyTorch build.
+pytorch-lightning<3
+torch-geometric<3
+momo-opt==0.1.0
+feather-format==0.4.1
+scikit-learn<1.6
+matplotlib
+pandas
+pyarrow

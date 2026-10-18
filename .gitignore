@@ -9,3 +9,8 @@ lightning_logs
 __pycache__
 .ipynb_checkpoints
 *.zip
+.env
+.env.*
+*.ckpt
+*.pt
+*.pth
