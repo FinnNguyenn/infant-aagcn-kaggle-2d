@@ -13,8 +13,20 @@ import pytorch_lightning as pl
 import bin.plot as plot
 from modules.utils import get_logger, LossCallback
 from modules.data import InfantMotionDataset
+from modules.robust_data import RobustInfantMotionDataset
 from modules.model import AdaptiveSTGCN
 from modules.constants import N, PHYS_EDGE_INDEX, COORD_EDGE_INDEX, FC_EDGE_INDEX
+
+
+class RobustDatasetEpochCallback(pl.Callback):
+    """Share the current epoch with deterministic on-the-fly augmentation."""
+
+    def __init__(self, dataset):
+        super().__init__()
+        self.dataset = dataset
+
+    def on_train_epoch_start(self, trainer, pl_module):
+        self.dataset.set_epoch(trainer.current_epoch)
 
 
 if __name__ == '__main__':
@@ -40,6 +52,24 @@ if __name__ == '__main__':
     arg_parser.add_argument('--num-workers', default=8, type=int)
     arg_parser.add_argument('--devices', default=1, type=int)
     arg_parser.add_argument(
+        '--split-manifest',
+        type=str,
+        help=(
+            'Optional v4 outer/inner split manifest. Training uses inner_train '
+            'and checkpoint selection uses clean inner_dev; outer_test is not loaded.'
+        )
+    )
+    arg_parser.add_argument(
+        '--robustness-family-set',
+        default='none',
+        choices=['none', 'local', 'all'],
+        help='Enable deterministic train-only corruption for P1 (local) or P2 (all).'
+    )
+    arg_parser.add_argument('--robustness-probability', default=0.5, type=float)
+    arg_parser.add_argument('--robustness-mild-probability', default=0.7, type=float)
+    arg_parser.add_argument('--robustness-seed', default=42, type=int)
+    arg_parser.add_argument('--data-fps', default=30.0, type=float)
+    arg_parser.add_argument(
         '--fold',
         default=None,
         type=int,
@@ -57,7 +87,7 @@ if __name__ == '__main__':
 
     age_data = pd.read_csv(args.age_file, dtype={'test_id': str})
     age_data = age_data[age_data.outcome != 2]
-    fts_data = pd.read_csv(args.feature_file)
+    fts_data = pd.read_csv(args.feature_file, dtype={'test_id': str})
     
     streams = args.streams.split(',')
 
@@ -70,9 +100,51 @@ if __name__ == '__main__':
     else:
         raise ValueError(f'Invalid edge type: {args.edges}')
 
-    kfold = KFold(n_splits=args.k_folds, shuffle=False)
+    if args.robustness_family_set != 'none' and streams != ['j', 'b']:
+        arg_parser.error('--robustness-family-set currently requires --streams j,b')
 
-    for fold_n, (train_indices, val_indices) in enumerate(kfold.split(age_data), start=1):
+    if args.split_manifest:
+        split_manifest = pd.read_csv(
+            args.split_manifest, dtype={'subject_id': str}
+        )
+        required_split_columns = {'fold', 'subject_id', 'role'}
+        if not required_split_columns.issubset(split_manifest.columns):
+            arg_parser.error(
+                '--split-manifest must contain fold, subject_id, and role columns'
+            )
+        fold_definitions = []
+        for fold_n in sorted(split_manifest.fold.unique()):
+            fold_rows = split_manifest[split_manifest.fold == fold_n]
+            train_ids = fold_rows[
+                fold_rows.role == 'inner_train'
+            ].subject_id.to_numpy()
+            val_ids = fold_rows[
+                fold_rows.role == 'inner_dev'
+            ].subject_id.to_numpy()
+            outer_ids = set(
+                fold_rows[fold_rows.role == 'outer_test'].subject_id.astype(str)
+            )
+            if not len(train_ids) or not len(val_ids):
+                arg_parser.error(
+                    f'Fold {fold_n} has an empty inner_train or inner_dev role'
+                )
+            if set(train_ids) & set(val_ids) or set(train_ids) & outer_ids or set(val_ids) & outer_ids:
+                arg_parser.error(f'Fold {fold_n} has overlapping subject roles')
+            fold_definitions.append((int(fold_n), train_ids, val_ids))
+    else:
+        kfold = KFold(n_splits=args.k_folds, shuffle=False)
+        fold_definitions = [
+            (
+                fold_n,
+                age_data.iloc[train_indices].test_id.to_numpy(),
+                age_data.iloc[val_indices].test_id.to_numpy(),
+            )
+            for fold_n, (train_indices, val_indices) in enumerate(
+                kfold.split(age_data), start=1
+            )
+        ]
+
+    for fold_n, train_ids, val_ids in fold_definitions:
         if args.fold is not None and fold_n != args.fold:
             continue
 
@@ -80,19 +152,31 @@ if __name__ == '__main__':
         os.makedirs(output_dir, exist_ok=True)
 
         # Set up dataloaders
-        train_metadata = age_data.iloc[train_indices]
-        val_metadata = age_data.iloc[val_indices]
-
-        train_ids = age_data.iloc[train_indices].test_id.values
-        val_ids = age_data.iloc[val_indices].test_id.values
-
         train_fts = fts_data[fts_data['test_id'].isin(train_ids)]
         val_fts = fts_data[fts_data['test_id'].isin(val_ids)]
 
         train_segments = train_fts.segment.tolist()
         val_segments = val_fts.segment.tolist()
 
-        train_dataset = InfantMotionDataset(args.data_dir, train_fts, streams, xy_data=args.xy_data, predict=False)
+        if args.robustness_family_set == 'none':
+            train_dataset = InfantMotionDataset(
+                args.data_dir, train_fts, streams,
+                xy_data=args.xy_data, predict=False
+            )
+            epoch_callback = None
+        else:
+            train_dataset = RobustInfantMotionDataset(
+                args.data_dir,
+                train_fts,
+                xy_data=args.xy_data,
+                family_set=args.robustness_family_set,
+                corruption_probability=args.robustness_probability,
+                mild_probability=args.robustness_mild_probability,
+                seed=args.robustness_seed,
+                fold=fold_n,
+                fps=args.data_fps,
+            )
+            epoch_callback = RobustDatasetEpochCallback(train_dataset)
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers)
 
         val_dataset = InfantMotionDataset(args.data_dir, val_fts, streams, xy_data=args.xy_data, predict=False)
@@ -124,12 +208,16 @@ if __name__ == '__main__':
         )
 
         # Train the model
+        callbacks = [lr_monitor, checkpointing, loss_callback]
+        if epoch_callback is not None:
+            callbacks.append(epoch_callback)
+
         trainer = pl.Trainer(
             accelerator='auto',
             devices=args.devices,
             max_epochs=args.epochs,
             log_every_n_steps=1,
-            callbacks=[lr_monitor, checkpointing, loss_callback]
+            callbacks=callbacks
         )
 
         trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
@@ -195,6 +283,9 @@ if __name__ == '__main__':
             'epoch_losses': loss_callback.losses,
             'train_segments': train_segments,
             'val_segments': val_segments,
+            'split_protocol': 'outer_inner_v4' if args.split_manifest else 'legacy_kfold',
+            'train_role': 'inner_train' if args.split_manifest else 'outer_train',
+            'val_role': 'inner_dev' if args.split_manifest else 'outer_val',
         }
         
         with open(os.path.join(output_dir, 'metadata.json'), 'w') as f:
