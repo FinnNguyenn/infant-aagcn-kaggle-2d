@@ -10,6 +10,9 @@ subject splits, and writable Kaggle scenario generation, see
 [ROBUSTNESS_KAGGLE.md](ROBUSTNESS_KAGGLE.md). The legacy training path remains
 the default when no robustness flags are supplied.
 
+Before a full robustness sweep, use the staged audit, P0/P1 pilot, and policy
+lock workflow in [CORRUPTION_PILOT_RUNBOOK.md](CORRUPTION_PILOT_RUNBOOK.md).
+
 [![arXiv](https://img.shields.io/badge/arXiv-2402.14400-b31b1b.svg)](https://arxiv.org/abs/2402.14400) [![zenodo](https://img.shields.io/badge/zenodo-14269866-green.svg)](https://doi.org/10.5281/zenodo.14269866)
 
 PyTorch Lightning Implementation of Learning Developmental Age from 3D Infant Kinetics Using Adaptive Graph Neural Networks.

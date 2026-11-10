@@ -52,6 +52,12 @@ if __name__ == '__main__':
     arg_parser.add_argument('--num-workers', default=8, type=int)
     arg_parser.add_argument('--devices', default=1, type=int)
     arg_parser.add_argument(
+        '--train-seed',
+        default=42,
+        type=int,
+        help='Base seed; each fold uses train_seed + fold number.'
+    )
+    arg_parser.add_argument(
         '--split-manifest',
         type=str,
         help=(
@@ -148,6 +154,10 @@ if __name__ == '__main__':
         if args.fold is not None and fold_n != args.fold:
             continue
 
+        # Re-seeding per fold gives P0/P1 the same initialization and makes a
+        # one-fold Kaggle run equivalent to that fold in a multi-fold run.
+        pl.seed_everything(args.train_seed + fold_n, workers=True)
+
         output_dir = os.path.join(args.output_dir, f'fold_{fold_n}')
         os.makedirs(output_dir, exist_ok=True)
 
@@ -204,7 +214,8 @@ if __name__ == '__main__':
             verbose=True,
             monitor='val_loss',
             mode='min',
-            save_top_k=5
+            save_top_k=5,
+            save_last=True
         )
 
         # Train the model

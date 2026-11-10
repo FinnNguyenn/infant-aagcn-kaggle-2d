@@ -1,5 +1,11 @@
 # Controlled corruption robustness on Kaggle
 
+Before running a full fold sweep, follow
+[`CORRUPTION_PILOT_RUNBOOK.md`](CORRUPTION_PILOT_RUNBOOK.md) to audit 100 real
+segments, establish the clean P0 anchor, compare a light P1 policy on paired
+clean/corrupted inner-development scenarios, and lock the policy before any
+outer-test evaluation.
+
 This workflow implements the locked v4 pilot for the 2D `JB-AAGCN` model. It
 keeps the mounted clean dataset read-only and writes split manifests,
 corrupted Feather files, masks, audit metadata, and model results under
