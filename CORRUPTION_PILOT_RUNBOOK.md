@@ -10,9 +10,26 @@ Trong notebook Kaggle:
 
 ```python
 %env REPO_ROOT=/kaggle/working/infant-aagcn
-%env CLEAN_ROOT=/kaggle/input/infant-aagcn-2d-data
+%env DATASET_ROOT=/kaggle/input/datasets/finsosweet/datasetka
+%env AGE_FILE=/kaggle/input/datasets/finsosweet/datasetka/metadata/metadata/combined.csv
+%env FEATURE_FILE=/kaggle/input/datasets/finsosweet/datasetka/data/data/features.csv
+%env STREAM_DIR=/kaggle/input/datasets/finsosweet/datasetka/data/data/streams_2d/combined
 %env SPLIT_ROOT=/kaggle/input/infant-frozen-splits
 %env WORK_ROOT=/kaggle/working/infant-pilot
+```
+
+`DatasetKA` có thêm một cấp folder lặp lại (`data/data` và
+`metadata/metadata`), nên không ghép đường dẫn theo mẫu `root/data` cũ. Xác
+minh mount trước khi chạy:
+
+```python
+import os
+from pathlib import Path
+
+assert Path(os.environ["AGE_FILE"]).is_file()
+assert Path(os.environ["FEATURE_FILE"]).is_file()
+assert list(Path(os.environ["STREAM_DIR"]).glob("*.feather"))
+print("DatasetKA paths are valid")
 ```
 
 Nếu chưa có frozen split, chỉ tạo **một lần** rồi publish cả
@@ -20,7 +37,7 @@ Nếu chưa có frozen split, chỉ tạo **một lần** rồi publish cả
 
 ```bash
 !PYTHONPATH="$REPO_ROOT" python "$REPO_ROOT/bin/make_robustness_splits.py" \
-  --age-file "$CLEAN_ROOT/metadata/combined.csv" \
+  --age-file "$AGE_FILE" \
   --output-dir "$WORK_ROOT/frozen-splits" \
   --k-folds 10 --inner-dev-fraction 0.20 --age-bins 5 --seed 42
 ```
@@ -36,8 +53,8 @@ GPU.
 
 ```bash
 !PYTHONPATH="$REPO_ROOT" python "$REPO_ROOT/bin/audit_corruption.py" \
-  --data-dir "$CLEAN_ROOT/data/streams_2d/combined" \
-  --feature-file "$CLEAN_ROOT/data/features.csv" \
+  --data-dir "$STREAM_DIR" \
+  --feature-file "$FEATURE_FILE" \
   --split-manifest "$SPLIT_ROOT/split_manifest.csv" \
   --output-dir "$WORK_ROOT/audit-fold-1" \
   --fold 1 --role inner_train --sample-size 100 \
@@ -92,9 +109,9 @@ correlation, sau đó chạy lại audit và tạo policy version mới.
 
 ```bash
 !PYTHONPATH="$REPO_ROOT" python "$REPO_ROOT/bin/train.py" \
-  --data-dir "$CLEAN_ROOT/data/streams_2d/combined" \
-  --age-file "$CLEAN_ROOT/metadata/combined.csv" \
-  --feature-file "$CLEAN_ROOT/data/features.csv" \
+  --data-dir "$STREAM_DIR" \
+  --age-file "$AGE_FILE" \
+  --feature-file "$FEATURE_FILE" \
   --split-manifest "$SPLIT_ROOT/split_manifest.csv" \
   --output-dir "$WORK_ROOT/results/p0-clean" \
   --fold 1 --k-folds 10 --streams j,b --xy-data \
@@ -128,8 +145,8 @@ lý, hoặc best epoch xuất hiện ngay đầu rồi suy giảm mạnh. Phải
 ```bash
 !PYTHONPATH="$REPO_ROOT" python "$REPO_ROOT/bin/evaluate_robustness.py" \
   --model-dir "$WORK_ROOT/results/p0-clean" \
-  --data-dir "$CLEAN_ROOT/data/streams_2d/combined" \
-  --feature-file "$CLEAN_ROOT/data/features.csv" \
+  --data-dir "$STREAM_DIR" \
+  --feature-file "$FEATURE_FILE" \
   --split-manifest "$SPLIT_ROOT/split_manifest.csv" \
   --output-dir "$WORK_ROOT/eval/p0-fold-1" \
   --fold 1 --families gaussian,spike,missing \
@@ -155,9 +172,9 @@ nào?** `mae_delta_vs_clean` đo mất hiệu năng do corruption;
 
 ```bash
 !PYTHONPATH="$REPO_ROOT" python "$REPO_ROOT/bin/train.py" \
-  --data-dir "$CLEAN_ROOT/data/streams_2d/combined" \
-  --age-file "$CLEAN_ROOT/metadata/combined.csv" \
-  --feature-file "$CLEAN_ROOT/data/features.csv" \
+  --data-dir "$STREAM_DIR" \
+  --age-file "$AGE_FILE" \
+  --feature-file "$FEATURE_FILE" \
   --split-manifest "$SPLIT_ROOT/split_manifest.csv" \
   --output-dir "$WORK_ROOT/results/p1-local-light" \
   --fold 1 --k-folds 10 --streams j,b --xy-data \

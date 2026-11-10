@@ -22,22 +22,28 @@ streams.
 %pip install -q -r requirements-kaggle.txt
 ```
 
-Set the mounted clean dataset root. Adjust this path to match the Kaggle
-Dataset slug:
+Set the mounted DatasetKA paths. This Kaggle Dataset has repeated directory
+levels (`data/data` and `metadata/metadata`), so keep the three artifact paths
+separate:
 
 ```python
-%env CLEAN_ROOT=/kaggle/input/infant-aagcn-2d-data
+%env DATASET_ROOT=/kaggle/input/datasets/finsosweet/datasetka
+%env AGE_FILE=/kaggle/input/datasets/finsosweet/datasetka/metadata/metadata/combined.csv
+%env FEATURE_FILE=/kaggle/input/datasets/finsosweet/datasetka/data/data/features.csv
+%env STREAM_DIR=/kaggle/input/datasets/finsosweet/datasetka/data/data/streams_2d/combined
 %env WORK_ROOT=/kaggle/working/infant-robustness
 
 import os
 from pathlib import Path
 
-CLEAN_ROOT = Path(os.environ['CLEAN_ROOT'])
+AGE_FILE = Path(os.environ['AGE_FILE'])
+FEATURE_FILE = Path(os.environ['FEATURE_FILE'])
+STREAM_DIR = Path(os.environ['STREAM_DIR'])
 WORK_ROOT = Path(os.environ['WORK_ROOT'])
 
-assert (CLEAN_ROOT / 'metadata/combined.csv').is_file()
-assert (CLEAN_ROOT / 'data/features.csv').is_file()
-assert list((CLEAN_ROOT / 'data/streams_2d/combined').glob('*.feather'))
+assert AGE_FILE.is_file()
+assert FEATURE_FILE.is_file()
+assert list(STREAM_DIR.glob('*.feather'))
 WORK_ROOT.mkdir(parents=True, exist_ok=True)
 ```
 
@@ -50,7 +56,7 @@ development.
 
 ```bash
 !PYTHONPATH=/kaggle/working/infant-aagcn python bin/make_robustness_splits.py \
-  --age-file "$CLEAN_ROOT/metadata/combined.csv" \
+  --age-file "$AGE_FILE" \
   --output-dir "$WORK_ROOT/splits" \
   --k-folds 10 \
   --inner-dev-fraction 0.20 \
@@ -72,9 +78,9 @@ modified.
 
 ```bash
 !PYTHONPATH=/kaggle/working/infant-aagcn python bin/corrupt_dataset.py \
-  --data-dir "$CLEAN_ROOT/data/streams_2d/combined" \
-  --feature-file "$CLEAN_ROOT/data/features.csv" \
-  --age-file "$CLEAN_ROOT/metadata/combined.csv" \
+  --data-dir "$STREAM_DIR" \
+  --feature-file "$FEATURE_FILE" \
+  --age-file "$AGE_FILE" \
   --split-manifest "$WORK_ROOT/splits/split_manifest.csv" \
   --fold 1 \
   --roles inner_train,inner_dev \
@@ -111,9 +117,9 @@ The checkpoint is selected by clean `inner_dev` MSE, matching the legacy
 
 ```bash
 !PYTHONPATH=/kaggle/working/infant-aagcn python bin/train.py \
-  --data-dir "$CLEAN_ROOT/data/streams_2d/combined" \
-  --age-file "$CLEAN_ROOT/metadata/combined.csv" \
-  --feature-file "$CLEAN_ROOT/data/features.csv" \
+  --data-dir "$STREAM_DIR" \
+  --age-file "$AGE_FILE" \
+  --feature-file "$FEATURE_FILE" \
   --split-manifest "$WORK_ROOT/splits/split_manifest.csv" \
   --output-dir "$WORK_ROOT/results/p0-clean" \
   --fold 1 \
@@ -131,9 +137,9 @@ P1 samples one local family (`gaussian`, `spike`, or `missing`) for 50% of
 
 ```bash
 !PYTHONPATH=/kaggle/working/infant-aagcn python bin/train.py \
-  --data-dir "$CLEAN_ROOT/data/streams_2d/combined" \
-  --age-file "$CLEAN_ROOT/metadata/combined.csv" \
-  --feature-file "$CLEAN_ROOT/data/features.csv" \
+  --data-dir "$STREAM_DIR" \
+  --age-file "$AGE_FILE" \
+  --feature-file "$FEATURE_FILE" \
   --split-manifest "$WORK_ROOT/splits/split_manifest.csv" \
   --output-dir "$WORK_ROOT/results/p1-local" \
   --fold 1 \
